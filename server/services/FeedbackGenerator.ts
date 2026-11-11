@@ -1,82 +1,112 @@
-import { FeedbackData, Message } from "@shared/schema";
-import { GeminiService } from "./GeminiService";
+import type { AnswerEvaluation, AnswerMetrics, FeedbackData, JobRole, Message, SpeechSummary } from "@shared/schema";
+import type { AiProvider, FeedbackNarrative } from "./ai/AiProvider";
+
+export type AnsweredQuestion = {
+  question: string;
+  answer: string;
+  evaluation: AnswerEvaluation;
+  metrics: AnswerMetrics;
+};
+
+type Scores = Pick<FeedbackData, "communication" | "technicalDepth" | "problemSolving" | "confidence" | "overallScore">;
+
+const DEPTH_SCORE = { shallow: 3, moderate: 6.5, deep: 9.5 } as const;
+const COMPREHENSION_SCORE = { confused: 3, partial: 6.5, clear: 9.5 } as const;
+
+const average = (values: number[]) => values.reduce((sum, v) => sum + v, 0) / values.length;
+const round1 = (value: number) => Math.round(value * 10) / 10;
+
+/**
+ * Scores are plain averages of the per-answer evaluations, so they are explainable:
+ *  communication  = clarity
+ *  technicalDepth = half answer quality, half depth
+ *  problemSolving = half quality, half relevance
+ *  confidence     = how well the candidate seemed to understand the question
+ * Evaluations made while the AI was unavailable are skipped. Returns null if none are left.
+ */
+export function scoreAnswers(answers: AnsweredQuestion[]): Scores | null {
+  const evals = answers.map((a) => a.evaluation).filter((e) => !e.fallback);
+  if (evals.length === 0) return null;
+
+  const communication = round1(average(evals.map((e) => e.clarity)));
+  const technicalDepth = round1(average(evals.map((e) => (e.quality + DEPTH_SCORE[e.depth]) / 2)));
+  const problemSolving = round1(average(evals.map((e) => (e.quality + e.relevance) / 2)));
+  const confidence = round1(average(evals.map((e) => COMPREHENSION_SCORE[e.comprehensionLevel])));
+  const overallScore = round1((communication + technicalDepth + problemSolving + confidence) / 4);
+  return { communication, technicalDepth, problemSolving, confidence, overallScore };
+}
+
+const DIMENSION_LABELS: Record<keyof Omit<Scores, "overallScore">, string> = {
+  communication: "Clear, well-structured communication",
+  technicalDepth: "Depth of technical detail",
+  problemSolving: "Relevant, practical problem solving",
+  confidence: "Understanding of the questions asked",
+};
+
+/** Used only when the narrative call fails: derives wording from the numbers, never invents numbers. */
+export function narrativeFromScores(scores: Scores): FeedbackNarrative {
+  const ranked = (Object.keys(DIMENSION_LABELS) as (keyof typeof DIMENSION_LABELS)[]).sort((a, b) => scores[b] - scores[a]);
+  return {
+    strengths: ranked.slice(0, 2).map((k) => `${DIMENSION_LABELS[k]} (${scores[k]}/10)`),
+    improvements: ranked.slice(-2).map((k) => `${DIMENSION_LABELS[k]} (${scores[k]}/10) needs work`),
+    detailedFeedback: `Overall score ${scores.overallScore}/10, averaged over your answers. The written summary was unavailable, so this text is generated from your scores only.`,
+  };
+}
+
+const pct = (n: number, total: number) => (total ? Math.round((n / total) * 100) : 0);
+
+export function speechSummary(answers: AnsweredQuestion[]): SpeechSummary {
+  const totalWords = answers.reduce((sum, a) => sum + a.metrics.words, 0);
+  const fillers = answers.flatMap((a) => a.metrics.fillerWords);
+  const counts = fillers.reduce<Record<string, number>>((acc, w) => ({ ...acc, [w]: (acc[w] ?? 0) + 1 }), {});
+  return {
+    avgWords: answers.length ? Math.round(totalWords / answers.length) : 0,
+    fillersPer100Words: totalWords ? round1((fillers.length / totalWords) * 100) : 0,
+    topFillers: Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([w]) => w),
+    answersWithNumbersPct: pct(answers.filter((a) => a.metrics.hasNumbers).length, answers.length),
+  };
+}
+
+/** Share of behavioral answers that contained each STAR part. Undefined when no answer was STAR-scored. */
+export function starCoverage(answers: AnsweredQuestion[]): FeedbackData["starPct"] {
+  const withStar = answers.map((a) => a.evaluation.star).filter((s) => s && (s.situation || s.task || s.action || s.result));
+  if (withStar.length === 0) return undefined;
+  const share = (key: "situation" | "task" | "action" | "result") => pct(withStar.filter((s) => s![key]).length, withStar.length);
+  return { situation: share("situation"), task: share("task"), action: share("action"), result: share("result") };
+}
 
 export class FeedbackGenerator {
-  private geminiService: GeminiService;
+  constructor(private ai: AiProvider) {}
 
-  constructor(geminiService: GeminiService) {
-    this.geminiService = geminiService;
-  }
+  async generateFeedback(history: Message[], role: JobRole, answers: AnsweredQuestion[]): Promise<FeedbackData> {
+    const realAnswers = answers.filter((a) => a.answer.trim().length > 20);
+    if (realAnswers.length < 2) return this.unscored("The interview ended before enough answers were given to score. Answer at least two questions to get a report.");
 
-  async generateFeedback(
-    conversationHistory: Message[],
-    role: string
-  ): Promise<FeedbackData> {
-    // Check if interview was incomplete (ended too early with minimal interaction)
-    const userMessages = conversationHistory.filter(msg => msg.role === "user");
-    const hasRealAnswers = userMessages.some(msg => msg.content.trim().length > 20);
-    
-    if (!hasRealAnswers || userMessages.length <= 1) {
-      return this.getIncompleteInterviewFeedback();
-    }
+    const scores = scoreAnswers(answers);
+    if (!scores) return this.unscored("The AI service was unavailable while your answers were evaluated, so no scores were produced.");
 
-    const conversationText = conversationHistory
-      .map((msg) => `${msg.role.toUpperCase()}: ${msg.content}`)
-      .join("\n\n");
+    const transcript = history.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join("\n\n");
+    const scoreSummary = Object.entries(scores).map(([k, v]) => `${k} ${v}`).join(", ");
+    const narrative = (await this.ai.writeNarrative(transcript, role, scoreSummary)) ?? narrativeFromScores(scores);
 
-    try {
-      const feedback = await this.geminiService.generateFeedback(conversationText, role);
-      
-      if (feedback) {
-        return feedback;
-      }
-      
-      return this.getDefaultFeedback();
-    } catch (error) {
-      console.error("Error generating feedback:", error);
-      return this.getDefaultFeedback();
-    }
-  }
-
-  private getIncompleteInterviewFeedback(): FeedbackData {
     return {
-      communication: 0,
-      technicalDepth: 0,
-      problemSolving: 0,
-      confidence: 0,
-      overallScore: 0,
-      strengths: [],
-      improvements: [
-        "Complete the full interview to receive accurate feedback",
-        "Answer questions with detailed responses",
-        "Engage with the interviewer throughout the session",
-      ],
-      detailedFeedback:
-        "The interview was ended early before any substantial responses could be evaluated. To receive meaningful feedback, please complete a full interview session with detailed answers to the questions asked. This will allow for proper assessment of your communication skills, technical knowledge, problem-solving abilities, and overall interview performance.",
-      questionSummaries: [],
+      ...scores,
+      ...narrative,
+      speech: speechSummary(answers),
+      starPct: starCoverage(answers),
+      questionSummaries: answers.map((a) => ({
+        question: a.question,
+        answer: a.answer,
+        score: a.evaluation.fallback ? 0 : a.evaluation.quality,
+        feedback: a.evaluation.comment ?? "",
+        improvedAnswer: a.evaluation.improvedAnswer,
+        star: a.evaluation.star,
+        metrics: a.metrics,
+      })),
     };
   }
 
-  private getDefaultFeedback(): FeedbackData {
-    return {
-      communication: 7.0,
-      technicalDepth: 6.5,
-      problemSolving: 7.2,
-      confidence: 7.0,
-      overallScore: 6.9,
-      strengths: [
-        "Demonstrated clear communication throughout the interview",
-        "Showed willingness to engage with questions",
-        "Maintained professional demeanor",
-      ],
-      improvements: [
-        "Provide more specific examples from past experiences",
-        "Dive deeper into technical implementation details",
-        "Structure answers using the STAR method for behavioral questions",
-      ],
-      detailedFeedback:
-        "Your interview performance showed good foundational understanding. You communicated clearly and stayed engaged throughout the conversation. To strengthen future interviews, focus on providing concrete examples with measurable outcomes, and consider going deeper into the technical aspects of your work. Overall, you demonstrated solid potential with room for growth in depth and specificity.",
-      questionSummaries: [],
-    };
+  private unscored(note: string): FeedbackData {
+    return { communication: 0, technicalDepth: 0, problemSolving: 0, confidence: 0, overallScore: 0, strengths: [], improvements: [], detailedFeedback: "", note, questionSummaries: [] };
   }
 }
