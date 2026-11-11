@@ -1,181 +1,106 @@
-import { useLocation } from "wouter";
-import { ArrowRight, Brain, LogOut, Mic, ShieldCheck, Sparkles, TrendingUp } from "lucide-react";
-
+import { Link } from "wouter";
+import { motion } from "motion/react";
+import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
+import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { ScoreRing } from "@/components/ScoreRing";
+import { Bar } from "@/components/report/Bar";
 import { useAuth } from "@/hooks/useAuth";
 
-const featureCards = [
-  {
-    title: "Adaptive questioning",
-    description: "The interviewer adjusts difficulty, tone, and follow-ups based on your answers.",
-    icon: Brain,
-  },
-  {
-    title: "Voice and chat modes",
-    description: "Practice in the flow that matches your interview style without changing screens.",
-    icon: Mic,
-  },
-  {
-    title: "Instant feedback",
-    description: "Get performance scoring, strengths, and clear improvement areas after each session.",
-    icon: TrendingUp,
-  },
-];
+const SAMPLE = {
+  rubric: [["Communication", 7.8], ["Technical depth", 6.4], ["Problem solving", 7.1], ["Confidence", 8.2]] as const,
+  question: "Tell me about a production incident you handled.",
+  yours: "We had a bug and I fixed it after a while. Things were fine after that.",
+  better: "A bad deploy doubled our checkout errors. I rolled it back within 12 minutes, found the missing index, and added a migration check that has caught two issues since.",
+};
 
 export default function Landing() {
-  const [, setLocation] = useLocation();
-  const { isAuthenticated, user, lastFeedback, signOut } = useAuth();
-
-  const handleStart = () => {
-    if (isAuthenticated) {
-      setLocation("/interview");
-    } else {
-      setLocation("/auth");
-    }
-  };
+  const { user } = useAuth();
+  const cta = user ? { href: "/app", label: "Open dashboard" } : { href: "/auth", label: "Create an account" };
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
-      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.74)_0%,rgba(255,255,255,0.96)_48%,rgba(248,250,252,0.94)_100%)] dark:bg-[linear-gradient(180deg,rgba(2,6,23,0.82)_0%,rgba(15,23,42,0.95)_48%,rgba(2,6,23,0.98)_100%)]" />
-      <div className="absolute left-[-6rem] top-[8rem] h-72 w-72 rounded-full bg-primary/10 blur-3xl dark:bg-cyan-400/20" />
-      <div className="absolute right-[-4rem] bottom-[5rem] h-80 w-80 rounded-full bg-sky-500/10 blur-3xl dark:bg-blue-500/20" />
+    <div className="min-h-dvh">
+      <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5">
+        <Logo />
+        <nav aria-label="Main" className="flex items-center gap-1">
+          {!user && <Button asChild variant="ghost" size="sm"><Link href="/auth?mode=login">Sign in</Link></Button>}
+          <Button asChild size="sm"><Link href={cta.href}>{user ? "Dashboard" : "Get started"}</Link></Button>
+          <ThemeToggle />
+        </nav>
+      </header>
 
-      <div className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col px-6 py-6 lg:px-10">
-        <header className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/10 backdrop-blur">
-              <ShieldCheck className="h-5 w-5 text-primary" />
+      <main id="main">
+        <section className="mx-auto grid max-w-6xl items-center gap-12 px-6 pb-24 pt-12 lg:grid-cols-[1.05fr_1fr] lg:pt-20">
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: "easeOut" }} className="space-y-7">
+            <p className="eyebrow">AI mock interviews</p>
+            <h1 className="text-5xl font-medium leading-[1.03] sm:text-6xl">Practice interviews that score you like an interviewer would</h1>
+            <p className="max-w-xl text-lg text-muted-foreground">
+              Answer by typing or speaking. Every report shows four skill scores, how many STAR parts you covered, your filler words, and a stronger version of each answer.
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button asChild size="lg"><Link href={cta.href}>{cta.label} <ArrowRight aria-hidden="true" /></Link></Button>
+              <a href="#report" className="rounded-sm px-2 py-3 text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">See a sample report</a>
             </div>
-            <div>
-              <p className="text-sm uppercase tracking-[0.28em] text-cyan-200/70">InterviewProAI</p>
-              <p className="text-sm text-muted-foreground">Adaptive interview practice workspace</p>
-            </div>
-          </div>
+            <p className="font-mono text-xs text-muted-foreground">8 roles · chat or voice · 5 to 20 minutes</p>
+          </motion.div>
 
-          <div className="flex items-center gap-3">
-            {isAuthenticated && user && (
-              <div className="hidden items-center gap-3 rounded-full border border-border bg-background/70 px-4 py-2 text-sm text-foreground/80 shadow-sm backdrop-blur md:flex">
-                <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                Signed in as {user.name}
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55, delay: 0.1, ease: "easeOut" }} id="report" className="overflow-hidden rounded-xl border bg-card" aria-label="Sample report">
+            <div className="flex items-center gap-2 border-b px-4 py-3">
+              <span className="h-2.5 w-2.5 rounded-full bg-border" /><span className="h-2.5 w-2.5 rounded-full bg-border" /><span className="h-2.5 w-2.5 rounded-full bg-border" />
+              <span className="ml-3 font-mono text-xs text-muted-foreground">Sample report · Software engineer</span>
+            </div>
+            <div className="space-y-6 p-6">
+              <div className="flex items-center gap-6">
+                <ScoreRing score={7.4} size={112} />
+                <div className="flex-1 space-y-3">
+                  {SAMPLE.rubric.map(([label, value]) => <Bar key={label} label={label} value={value} />)}
+                </div>
               </div>
-            )}
-            <ThemeToggle />
-          </div>
-        </header>
-
-        <main className="grid flex-1 items-center gap-10 py-12 lg:grid-cols-[1.15fr_0.85fr] lg:py-16">
-          <section className="space-y-8">
-            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-background/75 px-4 py-2 text-sm text-foreground shadow-sm backdrop-blur">
-              <Sparkles className="h-4 w-4" />
-              Private interview coaching with a polished workflow
-            </div>
-
-            <div className="space-y-5">
-              <h1 className="max-w-4xl text-5xl font-semibold leading-[1.02] tracking-tight sm:text-6xl lg:text-7xl">
-                Practice interviews in a workspace that feels calm, sharp, and intentional.
-              </h1>
-              <p className="max-w-2xl text-lg leading-8 text-muted-foreground sm:text-xl">
-                Sign in, launch a role-specific mock interview, and get guided feedback without the clutter of a typical dashboard.
-              </p>
-            </div>
-
-            <div className="flex flex-col gap-4 sm:flex-row">
-              <Button size="lg" onClick={handleStart} className="rounded-full px-6 shadow-lg shadow-primary/20">
-                {isAuthenticated ? "Continue to interview" : "Get started"}
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-              {!isAuthenticated ? (
-                <Button size="lg" variant="outline" onClick={() => setLocation("/auth")} className="rounded-full px-6">
-                  Create workspace access
-                </Button>
-              ) : (
-                <Button size="lg" variant="outline" onClick={() => { signOut(); setLocation("/"); }} className="rounded-full px-6">
-                  <LogOut className="h-4 w-4" />
-                  Sign out
-                </Button>
-              )}
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-3">
-              {featureCards.map((feature) => {
-                const Icon = feature.icon;
-
-                return (
-                  <Card key={feature.title} className="border-border bg-card/90 p-5 shadow-sm backdrop-blur-xl">
-                    <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                      <Icon className="h-5 w-5" />
-                    </div>
-                    <h3 className="text-base font-medium text-card-foreground">{feature.title}</h3>
-                    <p className="mt-2 text-sm leading-6 text-muted-foreground">{feature.description}</p>
-                  </Card>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="space-y-5 lg:pl-6">
-            <Card className="border-border bg-card/90 p-6 shadow-2xl backdrop-blur-2xl">
-              <div className="flex items-center justify-between gap-4">
+              <div className="space-y-3 border-t pt-5 text-sm">
+                <p className="font-medium">{SAMPLE.question}</p>
                 <div>
-                  <p className="text-sm uppercase tracking-[0.2em] text-primary">Workspace snapshot</p>
-                  <h2 className="mt-2 text-2xl font-semibold text-card-foreground">What you get</h2>
+                  <p className="eyebrow mb-1">Your answer · 4/10</p>
+                  <p className="text-muted-foreground">{SAMPLE.yours}</p>
                 </div>
-                <div className="rounded-full border border-border bg-background px-3 py-1 text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                  Live
-                </div>
-              </div>
-
-              <Separator className="my-6" />
-
-              <div className="space-y-4 text-sm leading-6 text-muted-foreground">
-                <div className="rounded-2xl border border-border bg-background/60 p-4">
-                  <p className="font-medium text-card-foreground">Beautiful interview shell</p>
-                  <p className="mt-1">A focused layout with adaptive panels and clean spacing.</p>
-                </div>
-                <div className="rounded-2xl border border-border bg-background/60 p-4">
-                  <p className="font-medium text-card-foreground">Role-aware practice</p>
-                  <p className="mt-1">Switch between roles, modes, and interview depth without reloading the app.</p>
-                </div>
-                <div className="rounded-2xl border border-border bg-background/60 p-4">
-                  <p className="font-medium text-card-foreground">Exit back to home</p>
-                  <p className="mt-1">When the interview ends, the app returns to this landing page automatically.</p>
+                <div className="rounded-md border border-primary/30 bg-primary/5 p-3">
+                  <p className="eyebrow mb-1 text-brand">A stronger version</p>
+                  <p>{SAMPLE.better}</p>
                 </div>
               </div>
-            </Card>
+            </div>
+          </motion.div>
+        </section>
 
-            {lastFeedback && (
-              <Card className="border-border bg-card/90 p-6 backdrop-blur-xl">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm uppercase tracking-[0.2em] text-primary">Latest feedback</p>
-                    <h3 className="mt-2 text-xl font-semibold text-card-foreground">Your last score is saved</h3>
-                  </div>
-                  <div className="rounded-2xl border border-border bg-background px-4 py-2 text-right">
-                    <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Overall</p>
-                    <p className="text-2xl font-semibold text-card-foreground">{lastFeedback.overallScore.toFixed(1)}/10</p>
-                  </div>
-                </div>
+        <section className="border-t">
+          <div className="mx-auto grid max-w-6xl gap-10 px-6 py-20 md:grid-cols-3">
+            {[
+              ["Scores you can trace", "Each answer is rated for clarity, depth and relevance. Your skill scores are averages of those ratings, so you can see why a number is what it is."],
+              ["Delivery from the transcript", "Filler words, answer length and whether you used numbers are counted directly from what you said. No model guesses."],
+              ["It remembers your weak spots", "After a few sessions the dashboard shows your weakest skills, and the next interview can lean on them."],
+            ].map(([title, text]) => (
+              <div key={title} className="space-y-2">
+                <h2 className="text-lg font-medium">{title}</h2>
+                <p className="text-muted-foreground">{text}</p>
+              </div>
+            ))}
+          </div>
+        </section>
 
-                <Separator className="my-5" />
+        <section className="border-t">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-6 px-6 py-20">
+            <h2 className="max-w-xl text-3xl font-medium">Run your first interview in under a minute</h2>
+            <Button asChild size="lg"><Link href={cta.href}>{cta.label} <ArrowRight aria-hidden="true" /></Link></Button>
+          </div>
+        </section>
+      </main>
 
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-border bg-background/60 p-4">
-                    <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Strength</p>
-                    <p className="mt-2 text-sm text-muted-foreground">{lastFeedback.strengths[0] || "Strong structure and clear delivery."}</p>
-                  </div>
-                  <div className="rounded-2xl border border-border bg-background/60 p-4">
-                    <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Improve</p>
-                    <p className="mt-2 text-sm text-muted-foreground">{lastFeedback.improvements[0] || "Keep answers concise and anchored in examples."}</p>
-                  </div>
-                </div>
-              </Card>
-            )}
-          </section>
-        </main>
-      </div>
+      <footer className="border-t">
+        <div className="mx-auto flex max-w-6xl flex-wrap justify-between gap-2 px-6 py-8 text-sm text-muted-foreground">
+          <span>interview/pro</span>
+          <span>Questions by Google Gemini. Speech to text by Deepgram.</span>
+        </div>
+      </footer>
     </div>
   );
 }
